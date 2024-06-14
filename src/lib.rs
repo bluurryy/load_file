@@ -31,18 +31,53 @@
 //! ```
 
 use std::{
+    env,
     fs::File,
     io::Read,
     path::{Path, PathBuf},
     str,
+    sync::OnceLock,
 };
 
+// This resolve behavior has been copied from `expect_test`.
 #[doc(hidden)]
 pub fn resolve_path(base: &str, rel: &str) -> Result<PathBuf, &'static str> {
-    Ok(Path::new(base)
-        .parent()
-        .ok_or("invalid source file path")?
-        .join(rel))
+    let path = Path::new(rel);
+
+    if path.is_absolute() {
+        return Ok(path.to_owned());
+    }
+
+    let dir = Path::new(base).parent().unwrap();
+    let path = dir.join(path);
+
+    static WORKSPACE_ROOT: OnceLock<Result<PathBuf, &'static str>> = OnceLock::new();
+
+    match WORKSPACE_ROOT.get_or_init(init) {
+        Ok(ok) => Ok(ok.join(path)),
+        Err(err) => Err(err),
+    }
+}
+
+fn init() -> Result<PathBuf, &'static str> {
+    // Until https://github.com/rust-lang/cargo/issues/3946 is resolved, this
+    // is set with a hack like https://github.com/rust-lang/cargo/issues/3946#issuecomment-973132993
+    if let Ok(workspace_root) = env::var("CARGO_WORKSPACE_DIR") {
+        return Ok(workspace_root.into());
+    }
+
+    // If a hack isn't used, we use a heuristic to find the "top-level" workspace.
+    // This fails in some cases, see https://github.com/rust-analyzer/expect-test/issues/33
+    let my_manifest = env::var("CARGO_MANIFEST_DIR")
+        .map_err(|_| "no CARGO_MANIFEST_DIR env var and the path is relative")?;
+    let workspace_root = Path::new(&my_manifest)
+        .ancestors()
+        .filter(|it| it.join("Cargo.toml").exists())
+        .last()
+        .unwrap()
+        .to_path_buf();
+
+    Ok(workspace_root)
 }
 
 #[doc(hidden)]
