@@ -48,7 +48,7 @@ pub fn resolve_path(base: &str, rel: &str) -> Result<PathBuf, &'static str> {
         return Ok(path.to_owned());
     }
 
-    let dir = Path::new(base).parent().unwrap();
+    let dir = Path::new(base).parent().ok_or("invalid source file path")?;
     let path = dir.join(path);
 
     static WORKSPACE_ROOT: OnceLock<Result<PathBuf, &'static str>> = OnceLock::new();
@@ -70,11 +70,12 @@ fn init() -> Result<PathBuf, &'static str> {
     // This fails in some cases, see https://github.com/rust-analyzer/expect-test/issues/33
     let my_manifest = env::var("CARGO_MANIFEST_DIR")
         .map_err(|_| "no CARGO_MANIFEST_DIR env var and the path is relative")?;
+
     let workspace_root = Path::new(&my_manifest)
         .ancestors()
         .filter(|it| it.join("Cargo.toml").exists())
         .last()
-        .unwrap()
+        .ok_or("could not find \"Cargo.toml\"`")?
         .to_path_buf();
 
     Ok(workspace_root)
